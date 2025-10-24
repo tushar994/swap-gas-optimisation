@@ -8,14 +8,14 @@ import {IQuoterV2} from "lib/swap-router-contracts/contracts/interfaces/IQuoterV
 import {IV3SwapRouter} from "../src/interfaces/IV3SwapRouter.sol";
 import {V3SwapRouter} from "../src/V3SwapRouter.sol";
 
-contract HyperswapForkTest is Test {
+contract OurForkTest is Test {
     address proxyAddress;
     address implementation;
 
     // address admin = address(0xD6642090EDE21cb1Bd6a8FBbd3861A7dbd6D3EA8);
     // address executer = address(0xD6642090EDE21cb1Bd6a8FBbd3861A7dbd6D3EA8);
     address admin = address(0x1);
-    address executer = address(0x2);
+    address executer = address(0x1111111111111111111111111111111111111111);
     address WETH = 0x5555555555555555555555555555555555555555;
     V3SwapRouter ourSwapRouter02;
 
@@ -45,12 +45,42 @@ contract HyperswapForkTest is Test {
 
         uint256 prevBalance = IERC20(USDC).balanceOf(address(executer));
 
+        console.logBytes4(bytes4(keccak256("swap(address,bool,int256,uint160,bytes)")));
+
+        // IV3SwapRouter.ExactInputSingleParams memory params = IV3SwapRouter.ExactInputSingleParams(
+        //     WETH,
+        //     USDC,
+        //     executer,
+        //     1000,
+        //     0,
+        //     WETH < USDC ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1,
+        //     pool
+        // );
+        // address poolAddress;
+        // assembly{
+        //     let ptr := mload(0x40) // Free memory pointer
+        //     mstore(ptr, 0x128acb08) // Function selector for swap(address,bool,int256,uint160,bytes)
+
+        //     // Pack tokenIn, tokenOut, msg.sender into 60 bytes
+        //     let tokenIn := mload(add(params, 0x00)) // Load tokenIn (20 bytes, right-aligned)
+        //     let tokenOut := mload(add(params, 0x20)) // Load tokenOut (20 bytes, right-aligned)
+        //     let sender := caller() // Load msg.sender (20 bytes, right-aligned)
+            
+        //     // Write first 32 bytes: tokenIn (20 bytes) + first 12 bytes of tokenOut
+        //     mstore(add(ptr, 0x04), or(shl(96, tokenIn), shr(160, tokenOut)))
+        //     // Write last 28 bytes: last 8 bytes of tokenOut + msg.sender (20 bytes)
+        //     mstore(add(ptr, 0x24), or(shl(96, and(tokenOut, 0xffffffffffffffff)), sender))
+
+        //     // Check if pool address has code
+        //     poolAddress := mload(add(params, 0xc0)) // Load params.pool
+        // }
+        // console.log("Pool address from params:", poolAddress);
+
         vm.startSnapshotGas("ourSwapRouter02 - exactInputSingle WETH to USDC");
 
         ourSwapRouter02.exactInputSingle(IV3SwapRouter.ExactInputSingleParams(
             WETH,
             USDC,
-            fee,
             executer,
             1000,
             0,

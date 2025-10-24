@@ -17,6 +17,8 @@ contract V3SwapRouter is IV3SwapRouter {
     /// @dev Transient storage variable used for returning the computed amount in for an exact output swap.
     uint256 private amountInCached = DEFAULT_AMOUNT_IN_CACHED;
 
+    bytes4 constant SWAP_SELECTOR = 0x128acb08; // bytes4(keccak256("swap(address,bool,int256,uint160,bytes)"))
+
     constructor() {}
 
     function decodePackedAddresses(bytes memory packedData) 
@@ -102,21 +104,128 @@ contract V3SwapRouter is IV3SwapRouter {
     }
 
     /// @inheritdoc IV3SwapRouter
-    function exactInputSingle(ExactInputSingleParams calldata params)
+    function exactInputSingle(ExactInputSingleParams memory params)
         external
         payable
         override
     {
         bool zeroForOne = params.tokenIn < params.tokenOut;
 
-        (int256 amount0, int256 amount1) =
-            IUniswapV3Pool(params.pool).swap(
-                params.recipient,
-                zeroForOne,
-                params.amountIn,
-                params.sqrtPriceLimitX96,
-                abi.encodePacked(params.tokenIn, params.tokenOut, msg.sender)
-            );
+        // (int256 amount0, int256 amount1) =
+        //     IUniswapV3Pool(params.pool).swap(
+        //         params.recipient,
+        //         zeroForOne,
+        //         params.amountIn,
+        //         params.sqrtPriceLimitX96,
+        //         abi.encodePacked(params.tokenIn, params.tokenOut, msg.sender)
+        //     );
+
+
+        // 0000000000000000000000001111111111111111111111111111111111111111
+        // 0000000000000000000000000000000000000000000000000000000000000001
+        // 00000000000000000000000000000000000000000000000000000000000003e8
+        // 00000000000000000000000000000000000000000000000000000001000276a4
+        // 00000000000000000000000000000000000000000000000000000000000000c4
+        // 000000000000000000000000000000000000000000000000000000000000003c
+        // 5555555555555555555555555555555555555555
+        // b88339cb7199b77e23db6e890353e22632ba630f
+        // 1111111111111111111111111111111111111111
+
+        // 0xb88339cb7199b77e23db6e8932ba630f
+
+        // 0xb88339CB7199b77E23DB6E890353E22632Ba630f
+        // 0xb88339cb7199b77e23db6e890353e22632ba630f00000000
+
+        
+        // -----------------------------------------------------------
+        // 1. Prepare Calldata for the external swap call
+        // -----------------------------------------------------------
+        
+        // We use the free memory pointer (0x40) to build the calldata.
+        // Calldata layout:
+        // 0x00: Function Selector (4 bytes)
+        // 0x04: recipient (address, 32 bytes)
+        // 0x24: zeroForOne (bool, 32 bytes)
+        // 0x44: amountSpecified (int256, 32 bytes)
+        // 0x64: sqrtPriceLimitX96 (uint160, 32 bytes)
+        // 0x84: data offset (uint256, 32 bytes) - Points to the start of the dynamic bytes argument
+        // 0xA4: data length (uint256, 32 bytes)
+        // 0xC4: packed data payload (variable length)
+        int256 amount0 = 1;
+        int256 amount1 = 1;
+
+        bytes memory packedData;
+        
+        assembly {
+            let ptr := mload(0x40) // Free memory pointer
+            mstore(0x40, add(ptr, 0x124)) // Update to end of used memory
+            mstore(ptr, SWAP_SELECTOR) // Function selector for swap(address,bool,int256,uint160,bytes)
+
+            // Store function selector and arguments
+            mstore(add(ptr, 0x04), mload(add(params, 0x40))) // recipient (offset 0x40)
+            mstore(add(ptr, 0x24), zeroForOne) // zeroForOne (bool)
+            mstore(add(ptr, 0x44), mload(add(params, 0x60))) // amountIn (offset 0x60)
+            mstore(add(ptr, 0x64), mload(add(params, 0xa0))) // sqrtPriceLimitX96 (offset 0xa0)
+            
+            // Store bytes offset (points to 0xa4, i.e., 164 bytes from ptr)
+            mstore(add(ptr, 0x84), 0xa4)
+            
+            // Store bytes data
+            mstore(add(ptr, 0xa4), 0x3c) // Length of bytes (60 bytes = 20 + 20 + 20)
+
+            // Pack tokenIn, tokenOut, msg.sender into 60 bytes
+            let tokenIn := mload(add(params, 0x00)) // Load tokenIn (20 bytes, right-aligned)
+            let tokenOut := mload(add(params, 0x20)) // Load tokenOut (20 bytes, right-aligned)
+            let sender := caller() // Load msg.sender (20 bytes, right-aligned)
+            
+            // Write first 32 bytes: tokenIn (20 bytes) + first 12 bytes of tokenOut
+            // 96 = 12 bytes
+            // 256 = 32 bytes
+            // 160 = 20 bytes
+            // 160-64 = 96
+            // we want to show 64
+            mstore(add(ptr, 0xc4), or(shl(96, tokenIn), shr(64, tokenOut)))
+            // Write last 28 bytes: last 8 bytes of tokenOut + msg.sender (20 bytes)
+            mstore(add(ptr, 0xe4), or(shl(192, tokenOut), shl(32, sender)))
+
+            // Check if pool address has code
+            let pool := mload(add(params, 0xc0)) // Load params.pool
+            // Debug check: Ensure pool is not the function selector
+            // if eq(pool, 0x128acb08) {
+            //     revert(0, 0) // Revert if pool address is invalid
+            // }
+            if iszero(extcodesize(pool)) {
+                revert(0, 0)
+            }
+
+            let return_ptr := mload(0x40)
+            mstore(0x40, add(return_ptr, 0x40)) // Update to end of used memory
+            
+            // Perform the call
+            let success := call(
+                gas(),           // Forward all available gas
+                pool,           // Target contract (params.pool)
+                0,              // No Ether sent
+                ptr,            // Calldata start
+                0x100,           // Calldata size (196 bytes)
+                return_ptr,            // Return data start
+                0x40            // Return data size (64 bytes for two int256)
+            )
+            
+            // Check call success
+            if iszero(success) {
+                revert(0, 0)
+            }
+            
+            // Load return values
+            amount0 := mload(return_ptr)          // First int256 (0x00-0x1f)
+            amount1 := mload(add(return_ptr, 0x20)) // Second int256 (0x20-0x3f)
+            
+            // Update free memory pointer
+            
+        }
+        (address a1, address a2, address a3)  = decodePackedAddresses(bytes memory packedData);
+
 
         int256 amountOut = (-(zeroForOne ? amount1 : amount0));
 
