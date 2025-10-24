@@ -5,7 +5,8 @@ import "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IQuoterV2} from "lib/swap-router-contracts/contracts/interfaces/IQuoterV2.sol";
-import {IV3SwapRouter} from "lib/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+import {IV3SwapRouter} from "../src/interfaces/IV3SwapRouter.sol";
+import {V3SwapRouter} from "../src/V3SwapRouter.sol";
 
 contract HyperswapForkTest is Test {
     address proxyAddress;
@@ -16,45 +17,51 @@ contract HyperswapForkTest is Test {
     address admin = address(0x1);
     address executer = address(0x2);
     address WETH = 0x5555555555555555555555555555555555555555;
-    address HyperswapSwapRouter02 = 0x6D99e7f6747AF2cDbB5164b6DD50e40D4fDe1e77;
+    V3SwapRouter ourSwapRouter02;
+
+    /// @dev The minimum value that can be returned from #getSqrtRatioAtTick. Equivalent to getSqrtRatioAtTick(MIN_TICK)
+    uint160 internal constant MIN_SQRT_RATIO = 4295128739;
+    /// @dev The maximum value that can be returned from #getSqrtRatioAtTick. Equivalent to getSqrtRatioAtTick(MAX_TICK)
+    uint160 internal constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342;
 
     function setUp() public {
         vm.createSelectFork("https://rpc.hyperliquid.xyz/evm");
+        ourSwapRouter02 = new V3SwapRouter();
     }
 
-    function testHyperswapSwap() public {
+    function testOurSwaprouterSwap() public {
         // Test swaping on pool 0xe712d505572b3f84c1b4deb99e1beab9dd0e23c9 - WHYPE/USDC
         vm.startPrank(executer);
-        IV3SwapRouter swapRouter = IV3SwapRouter(HyperswapSwapRouter02);
 
         uint24 fee = 3000;
 
         address USDC = 0xb88339CB7199b77E23DB6E890353E22632Ba630f;
+        address pool = 0xe712D505572b3f84C1B4deB99E1BeAb9dd0E23c9;
 
         deal(USDC, executer, 1e20);
         deal(WETH, executer, 1e20);
-        IERC20(USDC).approve(address(swapRouter), type(uint256).max);
-        IERC20(WETH).approve(address(swapRouter), type(uint256).max);
+        IERC20(USDC).approve(address(ourSwapRouter02), type(uint256).max);
+        IERC20(WETH).approve(address(ourSwapRouter02), type(uint256).max);
 
         uint256 prevBalance = IERC20(USDC).balanceOf(address(executer));
 
-        vm.startSnapshotGas("HyperswapSwapRouter02 - exactInputSingle WETH to USDC");
+        vm.startSnapshotGas("ourSwapRouter02 - exactInputSingle WETH to USDC");
 
-        swapRouter.exactInputSingle(IV3SwapRouter.ExactInputSingleParams(
+        ourSwapRouter02.exactInputSingle(IV3SwapRouter.ExactInputSingleParams(
             WETH,
             USDC,
             fee,
             executer,
             1000,
             0,
-            0
+            WETH < USDC ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1,
+            pool
         ));
 
         uint256 gasUsed = vm.stopSnapshotGas();
 
-        console.log("Gas used for exactInputSingle WETH to USDC by HyperswapSwapRouter02:", gasUsed);
+        console.log("Gas used for exactInputSingle WETH to USDC by ourSwapRouter02:", gasUsed);
 
         vm.stopPrank();
     }
-
 }
