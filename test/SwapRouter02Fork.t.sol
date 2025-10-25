@@ -17,6 +17,8 @@ contract OurForkTest is Test {
     address admin = address(0x1);
     address executer = address(0x1111111111111111111111111111111111111111);
     address WETH = 0x5555555555555555555555555555555555555555;
+    address USDC = 0xb88339CB7199b77E23DB6E890353E22632Ba630f;
+    address pool = 0xe712D505572b3f84C1B4deB99E1BeAb9dd0E23c9;
     V3SwapRouter ourSwapRouter02;
 
     /// @dev The minimum value that can be returned from #getSqrtRatioAtTick. Equivalent to getSqrtRatioAtTick(MIN_TICK)
@@ -34,9 +36,6 @@ contract OurForkTest is Test {
         vm.startPrank(executer);
 
         uint24 fee = 3000;
-
-        address USDC = 0xb88339CB7199b77E23DB6E890353E22632Ba630f;
-        address pool = 0xe712D505572b3f84C1B4deB99E1BeAb9dd0E23c9;
 
         deal(USDC, executer, 1e20);
         deal(WETH, executer, 1e20);
@@ -93,5 +92,51 @@ contract OurForkTest is Test {
         console.log("Gas used for exactInputSingle WETH to USDC by ourSwapRouter02:", gasUsed);
 
         vm.stopPrank();
+    }
+
+    function testRandom() public {
+        IV3SwapRouter.ExactInputSingleParams memory params = IV3SwapRouter.ExactInputSingleParams(
+            WETH,
+            USDC,
+            executer,
+            1000,
+            0,
+            WETH < USDC ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1,
+            pool
+        );
+        bytes memory result;
+
+        assembly {
+            let ptr := mload(0x40) // Free memory pointer
+            mstore(0x40, add(ptr, 0x124)) // Update to end of used memory
+            
+            // Store bytes offset (points to 0xa4, i.e., 164 bytes from ptr)
+            mstore(add(ptr, 0x0), 0x3c)
+            
+            // Store bytes data
+            // mstore(add(ptr, 0x20), 0x3c) // Length of bytes (60 bytes = 20 + 20 + 20)
+
+            // Pack tokenIn, tokenOut, msg.sender into 60 bytes
+            let tokenIn := mload(add(params, 0x00)) // Load tokenIn (20 bytes, right-aligned)
+            let tokenOut := mload(add(params, 0x20)) // Load tokenOut (20 bytes, right-aligned)
+            let sender := caller() // Load msg.sender (20 bytes, right-aligned)
+            
+            // Write first 32 bytes: tokenIn (20 bytes) + first 12 bytes of tokenOut
+            // 96 = 12 bytes
+            // 256 = 32 bytes
+            // 160 = 20 bytes
+            // 160-64 = 96
+            // we want to show 64
+            mstore(add(ptr, 0x20), or(shl(96, tokenIn), shr(64, tokenOut)))
+            // Write last 28 bytes: last 8 bytes of tokenOut + msg.sender (20 bytes)
+            mstore(add(ptr, 0x40), or(shl(192, tokenOut), shl(32, sender)))
+            result := ptr
+        }
+        console.logBytes(result);
+        console.log("Packed data length:", result.length);
+        (address a1, address a2, address a3) = ourSwapRouter02.decodePackedAddresses(result);
+        console.log("a1:", a1);
+        console.log("a2:", a2);
+        console.log("a3:", a3);
     }
 }

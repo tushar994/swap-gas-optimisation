@@ -158,7 +158,7 @@ contract V3SwapRouter is IV3SwapRouter {
         
         assembly {
             let ptr := mload(0x40) // Free memory pointer
-            mstore(0x40, add(ptr, 0x124)) // Update to end of used memory
+            mstore(0x40, add(ptr, 0xe4)) // Update to end of used memory
             mstore(ptr, SWAP_SELECTOR) // Function selector for swap(address,bool,int256,uint160,bytes)
 
             // Store function selector and arguments
@@ -168,10 +168,10 @@ contract V3SwapRouter is IV3SwapRouter {
             mstore(add(ptr, 0x64), mload(add(params, 0xa0))) // sqrtPriceLimitX96 (offset 0xa0)
             
             // Store bytes offset (points to 0xa4, i.e., 164 bytes from ptr)
-            mstore(add(ptr, 0x84), 0xa4)
+            mstore(add(ptr, 0x84), 0x3c)
             
             // Store bytes data
-            mstore(add(ptr, 0xa4), 0x3c) // Length of bytes (60 bytes = 20 + 20 + 20)
+            // mstore(add(ptr, 0xa4), 0x3c) // Length of bytes (60 bytes = 20 + 20 + 20)
 
             // Pack tokenIn, tokenOut, msg.sender into 60 bytes
             let tokenIn := mload(add(params, 0x00)) // Load tokenIn (20 bytes, right-aligned)
@@ -184,9 +184,9 @@ contract V3SwapRouter is IV3SwapRouter {
             // 160 = 20 bytes
             // 160-64 = 96
             // we want to show 64
-            mstore(add(ptr, 0xc4), or(shl(96, tokenIn), shr(64, tokenOut)))
+            mstore(add(ptr, 0xa4), or(shl(96, tokenIn), shr(64, tokenOut)))
             // Write last 28 bytes: last 8 bytes of tokenOut + msg.sender (20 bytes)
-            mstore(add(ptr, 0xe4), or(shl(192, tokenOut), shl(32, sender)))
+            mstore(add(ptr, 0xc4), or(shl(192, tokenOut), shl(32, sender)))
 
             // Check if pool address has code
             let pool := mload(add(params, 0xc0)) // Load params.pool
@@ -198,8 +198,6 @@ contract V3SwapRouter is IV3SwapRouter {
                 revert(0, 0)
             }
 
-            let return_ptr := mload(0x40)
-            mstore(0x40, add(return_ptr, 0x40)) // Update to end of used memory
             
             // Perform the call
             let success := call(
@@ -207,8 +205,8 @@ contract V3SwapRouter is IV3SwapRouter {
                 pool,           // Target contract (params.pool)
                 0,              // No Ether sent
                 ptr,            // Calldata start
-                0x100,           // Calldata size (196 bytes)
-                return_ptr,            // Return data start
+                0xe4,           // Calldata size (196 bytes)
+                ptr,            // Return data start
                 0x40            // Return data size (64 bytes for two int256)
             )
             
@@ -218,13 +216,12 @@ contract V3SwapRouter is IV3SwapRouter {
             }
             
             // Load return values
-            amount0 := mload(return_ptr)          // First int256 (0x00-0x1f)
-            amount1 := mload(add(return_ptr, 0x20)) // Second int256 (0x20-0x3f)
+            amount0 := mload(ptr)          // First int256 (0x00-0x1f)
+            amount1 := mload(add(ptr, 0x20)) // Second int256 (0x20-0x3f)
             
             // Update free memory pointer
             
         }
-        (address a1, address a2, address a3)  = decodePackedAddresses(bytes memory packedData);
 
 
         int256 amountOut = (-(zeroForOne ? amount1 : amount0));
