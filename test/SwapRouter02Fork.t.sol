@@ -50,7 +50,6 @@ contract HyperswapForkTest is Test {
         ourSwapRouter02.exactInputSingle(IV3SwapRouter.ExactInputSingleParams(
             WETH,
             USDC,
-            fee,
             executer,
             1000,
             0,
